@@ -10,6 +10,8 @@ START_ITEM_MAP = np.zeros((12, 16))
 START_ITEM_MAP[:, 0] = 10
 START_ITEM_MAP[:, 1] = 11
 
+FPS = 15
+
 image_map = {
     -1: "hole.png",
     0: "sand.png",
@@ -21,12 +23,49 @@ image_state_map = {
     2: "seedling.png",
     3: "flower.png",
     10: "stone.png",
-    11: "tree.png",
+    11: "sapling.png",
+    12: "tree.png",
+}
+state_item_map = {
+    0: None,
+    1: "seed",
+    2: "seed",
+    3: "seed",
+    10: "stone",
+    11: "tree",
+    12: "tree",
+}
+destruction_time = {
+    0: None,
+    1: 1,
+    2: 1,
+    3: 1,
+    10: 5,
+    11: 2,
+    12: 5,
 }
 
 
 tile_map = [[None for _ in range(START_MAP.shape[1])] for _ in range(START_MAP.shape[0])]
-money = 20
+
+
+class Inventory:
+    def __init__(self):
+        self.chosen = 0
+
+        self.seed = 4
+        self.tree = 0
+        self.stone = 0
+
+    def __repr__(self):
+        return f"Seeds: {self.seed} Trees: {self.tree} Rocks: {self.stone}"
+
+    def update(self, item, amount):
+        new_amount = getattr(self, item) + amount
+        setattr(self, item, new_amount)
+        return new_amount
+
+inventory = Inventory()
 
 
 def get_pos(x, y):
@@ -101,16 +140,26 @@ class Item(pygame.sprite.Sprite):
         self.rect.update((self.tile.rect.left, self.tile.rect.top), self.rect.size)
 
     def update(self):
-        global money
+        global inventory
         if self.state in [1, 2, 3]:
             self.ticks_since_last_update += 1
-            if self.ticks_since_last_update == 60:
+            if self.ticks_since_last_update == FPS * 4:
                 self.ticks_since_last_update = 0
                 self.state += 1
                 if self.state == 4:
-                    money += 10
+                    inventory.update("seed", 2)
                     self.state = 0
             if self.tile.water_level == 0:
+                self.state = 0
+        elif self.state in [11] and self.tile.fertlizer_level:
+            self.ticks_since_last_update += 1
+            if self.ticks_since_last_update == FPS * 20:
+                self.ticks_since_last_update = 0
+                self.state += 1
+        elif self.state in [10] and self.tile.water_level:
+            self.ticks_since_last_update += 1
+            if self.ticks_since_last_update == FPS * 100:
+                self.ticks_since_last_update = 0
                 self.state = 0
         else:
             self.ticks_since_last_update = 0
@@ -129,7 +178,11 @@ class Tile(pygame.sprite.Sprite):
         self._next_type = self.typ
         self.water_level = 0 if self.typ in [-1, 0] else 15
         self._water_level_next = self.water_level
+        self.fertlizer_level = 0
+        self._fertlizer_level_next = self.fertlizer_level
         self.item = None
+        self.enable_destruction_timer = False
+        self.destruction_timer = 0
 
         self._set_type(self.typ)
         self.rect = self.image.get_rect()
@@ -158,39 +211,73 @@ class Tile(pygame.sprite.Sprite):
                 touching.append(dir.water_level)
         return None if not len(touching) else max(touching)
 
+    def _max_touching_fertilizer(self):
+        touching = []
+        for dir in [self.up, self.down, self.right, self.left]:
+            if dir and dir.water_level >= self.water_level:
+                touching.append(dir.fertlizer_level)
+        return None if not len(touching) else max(touching)
+
     def _set_type(self, typ):
         if self.typ == 0:
             self.water_level = 0
+            self.fertlizer_level = 0
         self.typ = typ
         self._next_type = typ
-        if self.water_level:
+        if self.fertlizer_level:
+            self.image = pygame.image.load("fertilized.png")
+        elif self.water_level:
             self.image = pygame.image.load("water.png")
         else:
             self.image = pygame.image.load(image_map[self.typ])
 
     def update(self):
-        if self.typ == -1 or (self.typ > 100 and self.typ < 110):
-            max_touching = self._max_touching_water()
-            if max_touching:
-                self._water_level_next = max_touching - 1
+        if self.typ == -1:
+            max_touching_water = self._max_touching_water()
+            if max_touching_water:
+                self._water_level_next = max_touching_water - 1
             else:
                 self._water_level_next = 0
 
+            max_touching_fertilizer = self._max_touching_fertilizer()
+            if max_touching_fertilizer:
+                self._fertlizer_level_next = max_touching_fertilizer - 1
+            else:
+                self._fertlizer_level_next = 0
+        if self.water_level and self.item.state == 10:
+            self._fertlizer_level_next = 5
+
+
+        if self.enable_destruction_timer and self.item.state:
+            self.destruction_timer += 1
+            if self.destruction_timer >= FPS * destruction_time[self.item.state] and self.rect.collidepoint(pygame.mouse.get_pos()
+):
+                inventory.update(state_item_map[self.item.state], 1)
+                self.item.state = 0
+        else:
+            self.destruction_timer = 1
+
     def tick(self):
         self.water_level = self._water_level_next
+        self.fertlizer_level = self._fertlizer_level_next
         self._set_type(self._next_type)
 
     def mouse_left_click(self, pos):
-        global money
+        global inventory
         if not self.rect.collidepoint(pos):
             return
 
-        if self.water_level and not self.item.state:
-            self.item.state = 1
-            money -= 5
-        elif self.item.state:
-            self.item.state = 0
-            money += 5
+        if not self.item.state:
+            if inventory.chosen == 0 and self.water_level:
+                self.item.state = 1
+            elif inventory.chosen == 1:
+                self.item.state = 10
+            elif inventory.chosen == 2 and self.fertlizer_level:
+                self.item.state = 11
+            if self.item.state:
+                inventory.update(state_item_map[self.item.state], -1)
+        else:
+            self.enable_destruction_timer = True
 
     def mouse_right_click(self, pos):
         if not self.rect.collidepoint(pos):
@@ -213,7 +300,7 @@ class Engine:
         self.screen = pygame.display.set_mode((self.width, self.height))
 
     def run(self):
-        global money
+        global inventory
         tiles = pygame.sprite.Group()
         items = pygame.sprite.Group()
         for y in range(START_MAP.shape[0]):
@@ -230,7 +317,7 @@ class Engine:
 
         clock = pygame.time.Clock()
         while True:
-            clock.tick(16)
+            clock.tick(FPS)
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     sys.exit()
@@ -241,6 +328,13 @@ class Engine:
                     elif event.button == 3:
                         for object in tiles:
                             object.mouse_right_click(event.pos)
+                if event.type == MOUSEBUTTONUP:
+                    if event.button == 1:
+                        pass
+                        for object in tiles:
+                            object.enable_destruction_timer = False
+                if event.type == pygame.MOUSEWHEEL:
+                    inventory.chosen = (inventory.chosen + min(max(event.y, -1), 1)) % 3
                 if event.type == pygame.KEYDOWN:
                     if event.key== pygame.K_w:
                         character.go_up()
@@ -250,6 +344,11 @@ class Engine:
                         character.go_left()
                     elif event.key== pygame.K_d:
                         character.go_right()
+                    elif event.key== pygame.K_o:
+                        pass # TODO add fish w/ perm fertilizer to x blocks
+                    elif event.key== pygame.K_p:
+                        pass # TODO add ducks w/ perm fertilzier to whole area
+
 
             for object in tiles:
                 object.update()
@@ -262,13 +361,15 @@ class Engine:
             character.update()
             character.tick()
 
-            text_money_surface = font.render(f"Money: {money}", False, (0, 0, 0))
+            text_inventory_surface = font.render(repr(inventory), False, (0, 0, 0))
+            inventory_spot_surface = font.render(f"{inventory.chosen}", False, (0, 0, 0))
 
             self.screen.fill((255, 255, 255))
             tiles.draw(self.screen)
             items.draw(self.screen)
             self.screen.blit(character.image, character.rect)
-            self.screen.blit(text_money_surface, (0, 0))
+            self.screen.blit(text_inventory_surface, (0, 0))
+            self.screen.blit(inventory_spot_surface, (0, 420))
             pygame.display.flip()
 
 
