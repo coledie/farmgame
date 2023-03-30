@@ -44,7 +44,7 @@ destruction_time = {
     11: 2,
     12: 5,
 }
-
+fertilizer = ""
 
 tile_map = [[None for _ in range(START_MAP.shape[1])] for _ in range(START_MAP.shape[0])]
 
@@ -300,7 +300,7 @@ class Engine:
         self.screen = pygame.display.set_mode((self.width, self.height))
 
     def run(self):
-        global inventory
+        global inventory, fertilizer
         tiles = pygame.sprite.Group()
         items = pygame.sprite.Group()
         for y in range(START_MAP.shape[0]):
@@ -345,9 +345,9 @@ class Engine:
                     elif event.key== pygame.K_d:
                         character.go_right()
                     elif event.key== pygame.K_o:
-                        pass # TODO add fish w/ perm fertilizer to x blocks
+                        fertilizer = "fish"
                     elif event.key== pygame.K_p:
-                        pass # TODO add ducks w/ perm fertilzier to whole area
+                        fertilizer = "duck"
 
 
             for object in tiles:
@@ -363,6 +363,7 @@ class Engine:
 
             text_inventory_surface = font.render(repr(inventory), False, (0, 0, 0))
             inventory_spot_surface = font.render(f"{inventory.chosen}", False, (0, 0, 0))
+            fertilizer_surface = font.render(f"{fertilizer}", False, (0, 0, 0))
 
             self.screen.fill((255, 255, 255))
             tiles.draw(self.screen)
@@ -370,6 +371,7 @@ class Engine:
             self.screen.blit(character.image, character.rect)
             self.screen.blit(text_inventory_surface, (0, 0))
             self.screen.blit(inventory_spot_surface, (0, 420))
+            self.screen.blit(fertilizer_surface, (580, 240))
             pygame.display.flip()
 
 
