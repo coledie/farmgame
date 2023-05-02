@@ -287,7 +287,8 @@ class Tile(pygame.sprite.Sprite):
             self._set_type(0)
             self._water_level_next = 0
         elif self.typ == 0:
-            self._set_type(-1)
+            if self.item.state == 0:
+                self._set_type(-1)
 
 
 class Engine:
